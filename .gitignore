@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+
+.retaily-data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
