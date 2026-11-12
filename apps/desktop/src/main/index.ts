@@ -155,6 +155,48 @@ function registerIpcHandlers() {
       required: boolean;
     }>("/api/onboarding/status");
   });
+
+  // ==========================================
+  // PRODUCTS
+  // ==========================================
+
+  ipcMain.handle(
+    "products:request",
+    async (
+      _event,
+      request: {
+        method: "GET" | "POST" | "PATCH";
+        endpoint: string;
+        body?: unknown;
+      },
+    ) => {
+      const allowedMethods = ["GET", "POST", "PATCH"];
+
+      if (!allowedMethods.includes(request.method)) {
+        throw new Error("Unsupported products request.");
+      }
+
+      if (
+        typeof request.endpoint !== "string" ||
+        !request.endpoint.startsWith("/api/products") ||
+        request.endpoint.includes("..") ||
+        request.endpoint.includes("://")
+      ) {
+        throw new Error("Invalid products endpoint.");
+      }
+
+      return serverRequest(
+        request.endpoint,
+        {
+          method: request.method,
+          ...(request.body !== undefined
+            ? { body: JSON.stringify(request.body) }
+            : {}),
+        },
+        true,
+      );
+    },
+  );
 }
 
 function createWindow() {

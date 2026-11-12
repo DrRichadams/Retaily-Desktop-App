@@ -27,6 +27,14 @@ const retailyAPI = {
     registerCode: string;
     currency: string;
   }) => ipcRenderer.invoke("onboarding:create-owner", details),
+
+  products: {
+    request: (request: {
+      method: "GET" | "POST" | "PATCH";
+      endpoint: string;
+      body?: unknown;
+    }) => ipcRenderer.invoke("products:request", request),
+  },
 };
 
 contextBridge.exposeInMainWorld("retaily", retailyAPI);

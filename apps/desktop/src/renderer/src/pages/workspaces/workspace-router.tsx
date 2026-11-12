@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import styles from "./workspace-router.module.scss";
+import ProductsPage from "./products/products-page";
 
 type CurrentUser = Awaited<ReturnType<typeof window.retaily.getCurrentUser>>;
 
@@ -736,6 +737,8 @@ function Workspace({
 
           {selectedModule?.label === "Dashboard" ? (
             <Dashboard user={user} role={role} />
+          ) : selectedModule?.label === "Products" ? (
+            <ProductsPage permissions={user.permissions} />
           ) : selectedModule ? (
             <ComingSoon module={selectedModule} />
           ) : (

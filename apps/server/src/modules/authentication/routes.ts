@@ -187,6 +187,27 @@ export function registerAuthenticationRoutes(
   server.get("/api/auth/me", { preHandler: authenticate }, async (request) => {
     const auth = (request as AuthenticatedRequest).auth;
 
+    const business = db
+      .prepare(
+        `
+      SELECT id, name, currency
+      FROM businesses
+      WHERE id = ?
+      LIMIT 1
+      `,
+      )
+      .get(auth.businessId) as
+      | {
+          id: string;
+          name: string;
+          currency: string;
+        }
+      | undefined;
+
+    if (!business) {
+      throw new Error("AUTHENTICATED_BUSINESS_NOT_FOUND");
+    }
+
     return {
       userId: auth.userId,
       username: auth.username,
@@ -196,6 +217,12 @@ export function registerAuthenticationRoutes(
       roles: auth.roles,
       permissions: auth.permissions,
       branchIds: auth.branchIds,
+
+      business: {
+        id: business.id,
+        name: business.name,
+        currency: business.currency,
+      },
     };
   });
 
