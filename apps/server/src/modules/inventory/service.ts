@@ -882,7 +882,7 @@ export function listStockMovements(
           sm.created_by_employee_id,
           sm.created_at,
 
-          b.business_id AS business_id
+          b.business_id AS business_id,
           b.name AS branch_name,
           p.name AS product_name,
 
@@ -1152,8 +1152,19 @@ export function getStockTransfer(
     return null;
   }
 
-  requireBranchAccess(db, auth, transfer.source_branch_id);
-  requireBranchAccess(db, auth, transfer.destination_branch_id);
+  const accessibleBranchIds = new Set(
+    getAccessibleBranches(db, auth).map((branch) => branch.id),
+  );
+
+  const canAccessSource = accessibleBranchIds.has(transfer.source_branch_id);
+
+  const canAccessDestination = accessibleBranchIds.has(
+    transfer.destination_branch_id,
+  );
+
+  if (!canAccessSource && !canAccessDestination) {
+    throw new Error("TRANSFER_ACCESS_DENIED");
+  }
 
   const items = db
     .prepare(
@@ -1312,36 +1323,40 @@ export function dispatchStockTransfer(
   auth: AuthContext,
   transferId: string,
 ) {
-  const transfer = db
-    .prepare(
-      `
-      SELECT *
-      FROM stock_transfers
-      WHERE id = ?
-        AND business_id = ?
-      `,
-    )
-    .get(transferId, auth.businessId) as
-    | {
-        id: string;
-        source_branch_id: string;
-        destination_branch_id: string;
-        status: string;
-      }
-    | undefined;
-
-  if (!transfer) {
-    throw new Error("TRANSFER_NOT_FOUND");
-  }
-
-  requireBranchAccess(db, auth, transfer.source_branch_id);
-  requireBranchAccess(db, auth, transfer.destination_branch_id);
-
-  if (transfer.status !== "draft") {
-    throw new Error("TRANSFER_NOT_DRAFT");
-  }
-
   const transaction = db.transaction(() => {
+    const transfer = db
+      .prepare(
+        `
+        SELECT
+          id,
+          source_branch_id,
+          destination_branch_id,
+          status
+        FROM stock_transfers
+        WHERE id = ?
+          AND business_id = ?
+        `,
+      )
+      .get(transferId, auth.businessId) as
+      | {
+          id: string;
+          source_branch_id: string;
+          destination_branch_id: string;
+          status: string;
+        }
+      | undefined;
+
+    if (!transfer) {
+      throw new Error("TRANSFER_NOT_FOUND");
+    }
+
+    // Dispatching requires access to the source branch only.
+    requireBranchAccess(db, auth, transfer.source_branch_id);
+
+    if (transfer.status !== "draft") {
+      throw new Error("TRANSFER_NOT_DRAFT");
+    }
+
     const items = db
       .prepare(
         `
@@ -1359,6 +1374,29 @@ export function dispatchStockTransfer(
       throw new Error("TRANSFER_REQUIRES_ITEMS");
     }
 
+    const timestamp = now();
+
+    // Conditional transition prevents a second dispatch.
+    const statusUpdate = db
+      .prepare(
+        `
+        UPDATE stock_transfers
+        SET
+          status = 'in_transit',
+          dispatched_by_employee_id = ?,
+          dispatched_at = ?,
+          updated_at = ?
+        WHERE id = ?
+          AND business_id = ?
+          AND status = 'draft'
+        `,
+      )
+      .run(auth.employeeId, timestamp, timestamp, transferId, auth.businessId);
+
+    if (statusUpdate.changes !== 1) {
+      throw new Error("TRANSFER_NOT_DRAFT");
+    }
+
     for (const item of items) {
       applyStockMovement(db, auth, {
         branchId: transfer.source_branch_id,
@@ -1370,19 +1408,6 @@ export function dispatchStockTransfer(
         notes: `Transfer ${transferId} dispatched`,
       });
     }
-
-    db.prepare(
-      `
-      UPDATE stock_transfers
-      SET
-        status = 'in_transit',
-        dispatched_by_employee_id = ?,
-        dispatched_at = ?,
-        updated_at = ?
-      WHERE id = ?
-        AND status = 'draft'
-      `,
-    ).run(auth.employeeId, now(), now(), transferId);
 
     writeAuditLog(
       db,
@@ -1417,38 +1442,47 @@ export function receiveStockTransfer(
   transferId: string,
   input: ReceiveStockTransferInput,
 ) {
-  const transfer = db
-    .prepare(
-      `
-      SELECT *
-      FROM stock_transfers
-      WHERE id = ?
-        AND business_id = ?
-      `,
-    )
-    .get(transferId, auth.businessId) as
-    | {
-        id: string;
-        source_branch_id: string;
-        destination_branch_id: string;
-        status: string;
-      }
-    | undefined;
-
-  if (!transfer) {
-    throw new Error("TRANSFER_NOT_FOUND");
-  }
-
-  requireBranchAccess(db, auth, transfer.destination_branch_id);
-
-  if (
-    transfer.status !== "in_transit" &&
-    transfer.status !== "partially_received"
-  ) {
-    throw new Error("TRANSFER_NOT_RECEIVABLE");
-  }
-
   const transaction = db.transaction(() => {
+    const transfer = db
+      .prepare(
+        `
+        SELECT
+          id,
+          source_branch_id,
+          destination_branch_id,
+          status
+        FROM stock_transfers
+        WHERE id = ?
+          AND business_id = ?
+        `,
+      )
+      .get(transferId, auth.businessId) as
+      | {
+          id: string;
+          source_branch_id: string;
+          destination_branch_id: string;
+          status: string;
+        }
+      | undefined;
+
+    if (!transfer) {
+      throw new Error("TRANSFER_NOT_FOUND");
+    }
+
+    // Receiving requires access to the destination branch only.
+    requireBranchAccess(db, auth, transfer.destination_branch_id);
+
+    if (
+      transfer.status !== "in_transit" &&
+      transfer.status !== "partially_received"
+    ) {
+      throw new Error("TRANSFER_NOT_RECEIVABLE");
+    }
+
+    if (input.items.length === 0) {
+      throw new Error("TRANSFER_RECEIPT_REQUIRES_ITEMS");
+    }
+
     const getItem = db.prepare(
       `
       SELECT
@@ -1470,10 +1504,12 @@ export function receiveStockTransfer(
         updated_at = ?
       WHERE id = ?
         AND transfer_id = ?
+        AND quantity_received = ?
       `,
     );
 
     let receivedCount = 0;
+
     const receivedItems: Array<{
       itemId: string;
       productId: string;
@@ -1508,7 +1544,21 @@ export function receiveStockTransfer(
         throw new Error("RECEIVED_QUANTITY_EXCEEDS_REMAINING");
       }
 
-      const movement = applyStockMovement(db, auth, {
+      const totalReceived = item.quantity_received + receipt.quantityReceived;
+
+      const itemUpdate = updateItem.run(
+        totalReceived,
+        now(),
+        item.id,
+        transferId,
+        item.quantity_received,
+      );
+
+      if (itemUpdate.changes !== 1) {
+        throw new Error("TRANSFER_ITEM_UPDATE_CONFLICT");
+      }
+
+      applyStockMovement(db, auth, {
         branchId: transfer.destination_branch_id,
         productId: item.product_id,
         movementType: "transfer_in",
@@ -1518,10 +1568,6 @@ export function receiveStockTransfer(
         notes: input.notes ?? `Transfer ${transferId} received`,
       });
 
-      const totalReceived = item.quantity_received + receipt.quantityReceived;
-
-      updateItem.run(totalReceived, now(), item.id, transferId);
-
       receivedCount += receipt.quantityReceived;
 
       receivedItems.push({
@@ -1530,10 +1576,6 @@ export function receiveStockTransfer(
         quantityReceived: receipt.quantityReceived,
         totalReceived,
       });
-
-      if (movement.quantityAfter < 0) {
-        throw new Error("INVALID_DESTINATION_STOCK");
-      }
     }
 
     const outstanding = db
@@ -1551,24 +1593,34 @@ export function receiveStockTransfer(
       outstanding.count === 0 ? "received" : "partially_received";
 
     const fullyReceived = nextStatus === "received";
+    const timestamp = now();
 
-    db.prepare(
-      `
-      UPDATE stock_transfers
-      SET
-        status = ?,
-        received_by_employee_id = ?,
-        received_at = ?,
-        updated_at = ?
-      WHERE id = ?
-      `,
-    ).run(
-      nextStatus,
-      auth.employeeId,
-      fullyReceived ? now() : null,
-      now(),
-      transferId,
-    );
+    const statusUpdate = db
+      .prepare(
+        `
+        UPDATE stock_transfers
+        SET
+          status = ?,
+          received_by_employee_id = ?,
+          received_at = ?,
+          updated_at = ?
+        WHERE id = ?
+          AND business_id = ?
+          AND status IN ('in_transit', 'partially_received')
+        `,
+      )
+      .run(
+        nextStatus,
+        auth.employeeId,
+        fullyReceived ? timestamp : null,
+        timestamp,
+        transferId,
+        auth.businessId,
+      );
+
+    if (statusUpdate.changes !== 1) {
+      throw new Error("TRANSFER_NOT_RECEIVABLE");
+    }
 
     writeAuditLog(
       db,
@@ -1581,6 +1633,7 @@ export function receiveStockTransfer(
         receivedQuantity: receivedCount,
         status: nextStatus,
         items: receivedItems,
+        notes: input.notes ?? null,
       },
     );
 
@@ -1605,47 +1658,59 @@ export function cancelStockTransfer(
   transferId: string,
   notes: string,
 ) {
-  const transfer = db
-    .prepare(
-      `
-      SELECT *
-      FROM stock_transfers
-      WHERE id = ?
-        AND business_id = ?
-      `,
-    )
-    .get(transferId, auth.businessId) as
-    | {
-        id: string;
-        source_branch_id: string;
-        destination_branch_id: string;
-        status: string;
-      }
-    | undefined;
-
-  if (!transfer) {
-    throw new Error("TRANSFER_NOT_FOUND");
-  }
-
-  requireBranchAccess(db, auth, transfer.source_branch_id);
-  requireBranchAccess(db, auth, transfer.destination_branch_id);
-
-  if (transfer.status !== "draft") {
-    throw new Error("ONLY_DRAFT_TRANSFERS_CAN_BE_CANCELLED");
-  }
-
   const transaction = db.transaction(() => {
-    db.prepare(
-      `
-      UPDATE stock_transfers
-      SET
-        status = 'cancelled',
-        notes = ?,
-        updated_at = ?
-      WHERE id = ?
-        AND status = 'draft'
-      `,
-    ).run(notes, now(), transferId);
+    const transfer = db
+      .prepare(
+        `
+        SELECT
+          id,
+          source_branch_id,
+          destination_branch_id,
+          status
+        FROM stock_transfers
+        WHERE id = ?
+          AND business_id = ?
+        `,
+      )
+      .get(transferId, auth.businessId) as
+      | {
+          id: string;
+          source_branch_id: string;
+          destination_branch_id: string;
+          status: string;
+        }
+      | undefined;
+
+    if (!transfer) {
+      throw new Error("TRANSFER_NOT_FOUND");
+    }
+
+    requireBranchAccess(db, auth, transfer.source_branch_id);
+
+    if (transfer.status !== "draft") {
+      throw new Error("ONLY_DRAFT_TRANSFERS_CAN_BE_CANCELLED");
+    }
+
+    const timestamp = now();
+
+    const update = db
+      .prepare(
+        `
+        UPDATE stock_transfers
+        SET
+          status = 'cancelled',
+          notes = ?,
+          updated_at = ?
+        WHERE id = ?
+          AND business_id = ?
+          AND status = 'draft'
+        `,
+      )
+      .run(notes, timestamp, transferId, auth.businessId);
+
+    if (update.changes !== 1) {
+      throw new Error("ONLY_DRAFT_TRANSFERS_CAN_BE_CANCELLED");
+    }
 
     writeAuditLog(
       db,
@@ -1654,6 +1719,8 @@ export function cancelStockTransfer(
       "stock_transfer",
       transferId,
       {
+        sourceBranchId: transfer.source_branch_id,
+        destinationBranchId: transfer.destination_branch_id,
         notes,
       },
     );

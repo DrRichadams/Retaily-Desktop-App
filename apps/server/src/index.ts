@@ -6,6 +6,7 @@ import { registerOnboardingRoutes } from "./modules/onboarding/routes.js";
 import { registerAuthenticationRoutes } from "./modules/authentication/routes.js";
 import { registerProductRoutes } from "./modules/products/routes.js";
 import { registerInventoryRoutes } from "./modules/inventory/routes.js";
+import { registerBranchRoutes } from "./modules/branches/routes.js";
 
 const server = Fastify({
   logger: true,
@@ -20,6 +21,7 @@ registerOnboardingRoutes(server, database);
 registerAuthenticationRoutes(server, database);
 registerProductRoutes(server, database);
 registerInventoryRoutes(server, database);
+registerBranchRoutes(server, database);
 
 server.get("/health", async () => {
   const result = database
