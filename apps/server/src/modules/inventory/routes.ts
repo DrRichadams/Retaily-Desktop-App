@@ -174,6 +174,22 @@ function handleInventoryError(error: unknown, reply: FastifyReply) {
           statusCode: 409,
           message: "Only draft transfers can be cancelled.",
         },
+        TRANSFER_ACCESS_DENIED: {
+          statusCode: 403,
+          message:
+            "You do not have access to either branch involved in this transfer.",
+        },
+
+        TRANSFER_RECEIPT_REQUIRES_ITEMS: {
+          statusCode: 400,
+          message: "A receipt must contain at least one transfer item.",
+        },
+
+        TRANSFER_ITEM_UPDATE_CONFLICT: {
+          statusCode: 409,
+          message:
+            "This transfer item was changed by another operation. Please refresh and retry.",
+        },
       };
 
     const known = knownErrors[error.message];
@@ -359,7 +375,12 @@ export function registerInventoryRoutes(
     "/api/inventory/:productId",
     canViewInventory,
     async (request, reply) => {
+      // const validation = inventoryProductParamsSchema.safeParse(request.params);
+      console.log("INVENTORY REQUEST PARAMS:", request.params);
+
       const validation = inventoryProductParamsSchema.safeParse(request.params);
+
+      console.log("INVENTORY VALIDATION:", validation);
 
       if (!validation.success) {
         return reply.code(400).send({
