@@ -61,6 +61,26 @@ export const employeeStatusSchema = z.object({
   status: z.enum(["active", "inactive"]),
 });
 
+export const employeeAccountAccessSchema = z
+  .object({
+    action: z.enum(["suspend", "restore"]),
+    reason: z.enum(["admin", "security"]).optional(),
+  })
+  .refine(
+    (input) =>
+      input.action === "restore" ||
+      input.reason === "admin" ||
+      input.reason === "security",
+    {
+      message: "A suspension reason is required.",
+      path: ["reason"],
+    },
+  )
+  .refine((input) => input.action !== "restore" || input.reason === undefined, {
+    message: "A reason must not be supplied when restoring an account.",
+    path: ["reason"],
+  });
+
 export const assignEmployeeRolesSchema = z.object({
   roles: z
     .array(roleSchema)

@@ -34,6 +34,8 @@ export interface EmployeeListItem {
   phone: string | null;
   username: string;
   status: EmployeeStatus;
+  accountStatus: "active" | "disabled";
+  disabledReason: "employee_inactive" | "admin" | "security" | null;
   roles: EmployeeRole[];
   branches: EmployeeBranch[];
   createdAt: string;

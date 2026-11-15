@@ -31,6 +31,7 @@ interface EmployeeRow {
   created_at: string;
   username: string;
   user_status: "active" | "disabled";
+  disabled_reason: "employee_inactive" | "admin" | "security" | null;
 }
 
 interface BranchRow {
@@ -127,7 +128,8 @@ function getEmployeeRow(
       e.status,
       e.created_at,
       u.username,
-      u.status AS user_status
+      u.status AS user_status,
+      u.disabled_reason
     FROM employees e
     INNER JOIN users u ON u.id = e.user_id
     WHERE e.id = ?
@@ -325,6 +327,8 @@ function mapEmployee(
     phone: employee.phone,
     username: employee.username,
     status: employee.status,
+    accountStatus: employee.user_status,
+    disabledReason: employee.disabled_reason,
     roles: getEmployeeRoles(db, employee.id, employee.business_id),
     branches: getEmployeeBranches(db, employee.id, employee.business_id),
     createdAt: employee.created_at,
@@ -507,7 +511,8 @@ export function listEmployees(
       e.status,
       e.created_at,
       u.username,
-      u.status AS user_status
+      u.status AS user_status,
+      u.disabled_reason
     FROM employees e
     INNER JOIN users u ON u.id = e.user_id
     WHERE ${where}
@@ -836,6 +841,151 @@ export function updateEmployeeStatus(
       status,
       accountStatus: user.status,
       disabledReason: user.disabled_reason,
+    };
+  });
+
+  return update.immediate();
+}
+
+export function updateEmployeeAccountAccess(
+  db: Database.Database,
+  auth: AuthContext,
+  employeeId: string,
+  input: {
+    action: "suspend" | "restore";
+    reason?: "admin" | "security";
+  },
+) {
+  // Only the business Owner can suspend or restore accounts.
+  if (!isOwner(auth)) {
+    throw new Error("ACCOUNT_CONTROL_OWNER_ONLY");
+  }
+
+  const update = db.transaction(() => {
+    const employee = getEmployeeRow(db, auth.businessId, employeeId);
+
+    const updatedAt = now();
+
+    if (input.action === "suspend") {
+      if (employeeId === auth.employeeId) {
+        throw new Error("CANNOT_SUSPEND_SELF");
+      }
+
+      if (employee.status !== "active") {
+        throw new Error("EMPLOYEE_INACTIVE_ACCOUNT");
+      }
+
+      if (employee.user_status === "disabled") {
+        throw new Error("ACCOUNT_ALREADY_DISABLED");
+      }
+
+      if (input.reason !== "admin" && input.reason !== "security") {
+        throw new Error("ACCOUNT_SUSPENSION_REASON_REQUIRED");
+      }
+
+      const isTargetOwner = employeeRolesIncludeOwner(
+        db,
+        employeeId,
+        auth.businessId,
+      );
+
+      if (isTargetOwner && countActiveOwners(db, auth.businessId) <= 1) {
+        throw new Error("OWNER_EMPLOYEE_PROTECTED");
+      }
+
+      db.prepare(
+        `
+        UPDATE users
+        SET
+          status = 'disabled',
+          disabled_reason = ?,
+          updated_at = ?
+        WHERE id = ?
+          AND status = 'active'
+      `,
+      ).run(input.reason, updatedAt, employee.user_id);
+
+      db.prepare(
+        `
+        UPDATE sessions
+        SET revoked_at = ?
+        WHERE user_id = ?
+          AND revoked_at IS NULL
+      `,
+      ).run(updatedAt, employee.user_id);
+
+      writeAuditLog(
+        db,
+        auth,
+        "employee.account_suspended",
+        "employee",
+        employeeId,
+        {
+          reason: input.reason,
+          employeeStatus: employee.status,
+        },
+      );
+    } else {
+      // Only accounts suspended by an Owner/admin can be restored
+      // through this operation. Employee deactivation is separate.
+      if (
+        employee.disabled_reason !== "admin" &&
+        employee.disabled_reason !== "security"
+      ) {
+        throw new Error("ACCOUNT_NOT_ADMIN_SUSPENDED");
+      }
+
+      if (employee.status !== "active") {
+        throw new Error("EMPLOYEE_INACTIVE_ACCOUNT");
+      }
+
+      db.prepare(
+        `
+        UPDATE users
+        SET
+          status = 'active',
+          disabled_reason = NULL,
+          failed_login_attempts = 0,
+          locked_until = NULL,
+          updated_at = ?
+        WHERE id = ?
+          AND status = 'disabled'
+          AND disabled_reason IN ('admin', 'security')
+      `,
+      ).run(updatedAt, employee.user_id);
+
+      writeAuditLog(
+        db,
+        auth,
+        "employee.account_restored",
+        "employee",
+        employeeId,
+        {
+          previousReason: employee.disabled_reason,
+          employeeStatus: employee.status,
+        },
+      );
+    }
+
+    const account = db
+      .prepare(
+        `
+      SELECT status, disabled_reason
+      FROM users
+      WHERE id = ?
+    `,
+      )
+      .get(employee.user_id) as {
+      status: "active" | "disabled";
+      disabled_reason: "employee_inactive" | "admin" | "security" | null;
+    };
+
+    return {
+      success: true,
+      employeeId,
+      employeeStatus: employee.status,
+      accountStatus: account.status,
+      disabledReason: account.disabled_reason,
     };
   });
 

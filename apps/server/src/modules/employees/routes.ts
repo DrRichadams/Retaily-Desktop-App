@@ -13,6 +13,7 @@ import {
   createEmployeeSchema,
   updateEmployeeSchema,
   employeeStatusSchema,
+  employeeAccountAccessSchema,
   assignEmployeeRolesSchema,
   assignEmployeeBranchesSchema,
   resetEmployeePasswordSchema,
@@ -24,6 +25,7 @@ import {
   createEmployee,
   updateEmployee,
   updateEmployeeStatus,
+  updateEmployeeAccountAccess,
   assignEmployeeRoles,
   assignEmployeeBranches,
   resetEmployeePassword,
@@ -121,6 +123,37 @@ function handleEmployeeError(
     USERNAME_ALREADY_EXISTS: {
       statusCode: 409,
       message: "This username is already in use.",
+    },
+    ACCOUNT_CONTROL_OWNER_ONLY: {
+      statusCode: 403,
+      message: "Only a business Owner can control employee account access.",
+    },
+
+    ACCOUNT_SUSPENSION_REASON_REQUIRED: {
+      statusCode: 400,
+      message: "A reason is required to suspend an account.",
+    },
+
+    CANNOT_SUSPEND_SELF: {
+      statusCode: 400,
+      message: "You cannot suspend your own account.",
+    },
+
+    EMPLOYEE_INACTIVE_ACCOUNT: {
+      statusCode: 409,
+      message:
+        "This employee is inactive. Activate the employee before restoring account access.",
+    },
+
+    ACCOUNT_ALREADY_DISABLED: {
+      statusCode: 409,
+      message: "This account is already disabled.",
+    },
+
+    ACCOUNT_NOT_ADMIN_SUSPENDED: {
+      statusCode: 409,
+      message:
+        "This account is not suspended by an administrator or security action.",
     },
   };
 
@@ -348,6 +381,51 @@ export function registerEmployeeRoutes(
     },
   );
 
+  // Suspend or restore employee account access
+  server.patch(
+    "/api/employees/:id/account-access",
+    {
+      preHandler: [authenticate],
+    },
+    async (request, reply) => {
+      const params = employeeIdSchema.safeParse(request.params);
+      const body = employeeAccountAccessSchema.safeParse(request.body);
+
+      if (!params.success || !body.success) {
+        return reply.code(400).send({
+          error: "INVALID_INPUT",
+          message: "Invalid account access information.",
+          issues: [
+            ...(!params.success ? params.error.issues : []),
+            ...(!body.success ? body.error.issues : []),
+          ],
+        });
+      }
+
+      try {
+        const auth = (request as AuthenticatedRequest).auth;
+
+        const result = updateEmployeeAccountAccess(
+          db,
+          auth,
+          params.data.id,
+          body.data,
+        );
+
+        return reply.send({
+          success: true,
+          message:
+            body.data.action === "suspend"
+              ? "Employee account access suspended successfully."
+              : "Employee account access restored successfully.",
+          data: result,
+        });
+      } catch (error) {
+        return handleEmployeeError(error, reply, request);
+      }
+    },
+  );
+
   // Assign employee roles
   server.put(
     "/api/employees/:id/roles",
@@ -413,6 +491,52 @@ export function registerEmployeeRoutes(
         return reply.send({
           success: true,
           message: "Employee branch assignments updated successfully.",
+          data: result,
+        });
+      } catch (error) {
+        return handleEmployeeError(error, reply, request);
+      }
+    },
+  );
+
+  // Suspend or restore employee account access
+  server.patch(
+    "/api/employees/:id/account-access",
+    {
+      preHandler: canManageEmployees,
+    },
+    async (request, reply) => {
+      const params = employeeIdSchema.safeParse(request.params);
+
+      const body = employeeAccountAccessSchema.safeParse(request.body);
+
+      if (!params.success || !body.success) {
+        return reply.code(400).send({
+          error: "INVALID_INPUT",
+          message: "Invalid employee account access information.",
+          issues: [
+            ...(!params.success ? params.error.issues : []),
+            ...(!body.success ? body.error.issues : []),
+          ],
+        });
+      }
+
+      try {
+        const auth = (request as AuthenticatedRequest).auth;
+
+        const result = updateEmployeeAccountAccess(
+          db,
+          auth,
+          params.data.id,
+          body.data,
+        );
+
+        return reply.send({
+          success: true,
+          message:
+            body.data.action === "suspend"
+              ? "Employee account suspended successfully."
+              : "Employee account restored successfully.",
           data: result,
         });
       } catch (error) {
