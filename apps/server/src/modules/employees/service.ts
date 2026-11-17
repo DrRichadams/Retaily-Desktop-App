@@ -867,32 +867,39 @@ export function updateEmployeeAccountAccess(
     const updatedAt = now();
 
     if (input.action === "suspend") {
-      if (employeeId === auth.employeeId) {
-        throw new Error("CANNOT_SUSPEND_SELF");
-      }
-
+      // The employee must be active before account access can be suspended.
       if (employee.status !== "active") {
         throw new Error("EMPLOYEE_INACTIVE_ACCOUNT");
       }
 
+      // An already-disabled account cannot be suspended again.
       if (employee.user_status === "disabled") {
         throw new Error("ACCOUNT_ALREADY_DISABLED");
       }
 
+      // Every suspension must have a valid reason.
       if (input.reason !== "admin" && input.reason !== "security") {
         throw new Error("ACCOUNT_SUSPENSION_REASON_REQUIRED");
       }
 
+      // Determine whether the target employee is an Owner.
       const isTargetOwner = employeeRolesIncludeOwner(
         db,
         employeeId,
         auth.businessId,
       );
 
+      // Never allow the business to lose its last active Owner.
       if (isTargetOwner && countActiveOwners(db, auth.businessId) <= 1) {
         throw new Error("OWNER_EMPLOYEE_PROTECTED");
       }
 
+      // An Owner cannot suspend their own account.
+      if (employeeId === auth.employeeId) {
+        throw new Error("CANNOT_SUSPEND_SELF");
+      }
+
+      // Disable the employee's user account.
       db.prepare(
         `
         UPDATE users
@@ -902,18 +909,20 @@ export function updateEmployeeAccountAccess(
           updated_at = ?
         WHERE id = ?
           AND status = 'active'
-      `,
+        `,
       ).run(input.reason, updatedAt, employee.user_id);
 
+      // Immediately revoke all active sessions.
       db.prepare(
         `
         UPDATE sessions
         SET revoked_at = ?
         WHERE user_id = ?
           AND revoked_at IS NULL
-      `,
+        `,
       ).run(updatedAt, employee.user_id);
 
+      // Record the suspension in the audit log.
       writeAuditLog(
         db,
         auth,
@@ -926,8 +935,8 @@ export function updateEmployeeAccountAccess(
         },
       );
     } else {
-      // Only accounts suspended by an Owner/admin can be restored
-      // through this operation. Employee deactivation is separate.
+      // Only accounts suspended by an Owner/admin can be restored here.
+      // Employee deactivation is handled separately.
       if (
         employee.disabled_reason !== "admin" &&
         employee.disabled_reason !== "security"
@@ -935,10 +944,12 @@ export function updateEmployeeAccountAccess(
         throw new Error("ACCOUNT_NOT_ADMIN_SUSPENDED");
       }
 
+      // An inactive employee cannot have account access restored.
       if (employee.status !== "active") {
         throw new Error("EMPLOYEE_INACTIVE_ACCOUNT");
       }
 
+      // Restore the account without restoring previously revoked sessions.
       db.prepare(
         `
         UPDATE users
@@ -951,9 +962,10 @@ export function updateEmployeeAccountAccess(
         WHERE id = ?
           AND status = 'disabled'
           AND disabled_reason IN ('admin', 'security')
-      `,
+        `,
       ).run(updatedAt, employee.user_id);
 
+      // Record the restoration in the audit log.
       writeAuditLog(
         db,
         auth,
@@ -967,13 +979,16 @@ export function updateEmployeeAccountAccess(
       );
     }
 
+    // Retrieve the final account state.
     const account = db
       .prepare(
         `
-      SELECT status, disabled_reason
-      FROM users
-      WHERE id = ?
-    `,
+        SELECT
+          status,
+          disabled_reason
+        FROM users
+        WHERE id = ?
+        `,
       )
       .get(employee.user_id) as {
       status: "active" | "disabled";
@@ -989,6 +1004,7 @@ export function updateEmployeeAccountAccess(
     };
   });
 
+  // Execute the complete operation atomically.
   return update.immediate();
 }
 
