@@ -152,7 +152,7 @@ function ensureInventoryRecord(
  * This function must be called inside a database
  * transaction.
  */
-function applyStockMovement(
+export function applyStockMovement(
   db: Database.Database,
   auth: AuthContext,
   input: {
