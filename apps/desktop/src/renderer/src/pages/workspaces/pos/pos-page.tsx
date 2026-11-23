@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -59,7 +59,13 @@ function isSavedSaleRequest(value: unknown): value is RetailyCreateSaleRequest {
   return itemsValid && paymentsValid;
 }
 
-import { formatMinor } from "./checkout-calculations";
+import { currencyFractionDigits, formatMinor } from "./checkout-calculations";
+import {
+  checkoutDraftReducer,
+  closeCheckoutDraft,
+  createCheckoutDraft,
+  discardCheckoutDraft,
+} from "./checkout-draft";
 
 function safeUnitPrice(product: RetailyProduct) {
   return Number.isSafeInteger(product.sellingPriceMinor) && product.sellingPriceMinor >= 0
@@ -83,6 +89,10 @@ export default function PosPage({ user }: { user: CurrentUser }) {
   const [pendingAttemptError, setPendingAttemptError] = useState("");
   const [activeAttempt, setActiveAttempt] = useState<ActiveCheckoutAttempt | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [checkoutDraft, dispatchCheckoutDraft] = useReducer(
+    checkoutDraftReducer,
+    createCheckoutDraft(),
+  );
   const [completedSale, setCompletedSale] = useState<RetailySaleResponse | null>(null);
   const [attemptBusy, setAttemptBusy] = useState(false);
   const [attemptListLoading, setAttemptListLoading] = useState(true);
@@ -91,6 +101,7 @@ export default function PosPage({ user }: { user: CurrentUser }) {
   const requestVersion = useRef(0);
   const loadMoreVersion = useRef(0);
   const currency = user.business.currency;
+  const currencyValid = currencyFractionDigits(currency) !== null;
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
   const cartLocked = Boolean(
     completedSale ||
@@ -235,10 +246,25 @@ export default function PosPage({ user }: { user: CurrentUser }) {
   const finishSale = useCallback((sale: RetailySaleResponse) => {
     try { window.localStorage.removeItem(localAttemptStorageKey); } catch { /* Session state still retains the key until this sale is shown. */ }
     setCompletedSale(sale);
+    dispatchCheckoutDraft({ type: "discard" });
     setActiveAttempt(null);
     setPaymentOpen(false);
     void refreshPendingAttempts();
   }, [localAttemptStorageKey, refreshPendingAttempts]);
+
+  const closePaymentDialog = useCallback(() => {
+    const transition = closeCheckoutDraft(checkoutDraft);
+    setPaymentOpen(transition.isOpen);
+  }, [checkoutDraft]);
+
+  const discardPaymentDraft = useCallback(() => {
+    const transition = discardCheckoutDraft(
+      checkoutDraft,
+      window.confirm("Discard all payment and discount entries for this checkout?"),
+    );
+    if (!transition.isOpen) dispatchCheckoutDraft({ type: "discard" });
+    setPaymentOpen(transition.isOpen);
+  }, [checkoutDraft]);
 
   const setAttemptFailure = useCallback((
     error: unknown,
@@ -682,10 +708,11 @@ export default function PosPage({ user }: { user: CurrentUser }) {
           })}
         </div>
         <div className={styles.summary}>
+          {!currencyValid && <p className={styles.errorBanner} role="alert">The configured business currency is invalid. Checkout is disabled until it is corrected.</p>}
           <div><span>Subtotal</span><strong>{formatMinor(subtotalMinor, currency)}</strong></div>
           {canDiscount && <p className={styles.discountHint}>Discounts are available for your role during checkout.</p>}
           <div className={styles.total}><span>Total preview</span><strong>{formatMinor(subtotalMinor, currency)}</strong></div>
-          <button type="button" className={styles.checkoutButton} disabled={!selectedBranch || cartCount === 0 || cartLocked} onClick={() => setPaymentOpen(true)}>Continue to payment</button>
+          <button type="button" className={styles.checkoutButton} disabled={!currencyValid || !selectedBranch || cartCount === 0 || cartLocked} onClick={() => setPaymentOpen(true)}>Continue to payment</button>
           <span className={styles.checkoutNote}>Server pricing and final totals are confirmed when the sale is submitted.</span>
         </div>
       </aside>
@@ -697,7 +724,10 @@ export default function PosPage({ user }: { user: CurrentUser }) {
           currency={currency}
           cart={Object.values(cart)}
           permissions={user.permissions}
-          onClose={() => setPaymentOpen(false)}
+          draft={checkoutDraft}
+          dispatchDraft={dispatchCheckoutDraft}
+          onClose={closePaymentDialog}
+          onDiscard={discardPaymentDraft}
           onSubmit={(request) => void createCheckoutAttempt(request)}
         />
       )}

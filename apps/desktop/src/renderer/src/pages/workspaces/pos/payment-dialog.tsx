@@ -14,18 +14,25 @@ import {
   type CheckoutDiscount,
   type PaymentDraft,
 } from "./checkout-calculations";
+import {
+  type CheckoutDraft,
+  type CheckoutDraftAction,
+  type DiscountDraft,
+  noDiscount,
+} from "./checkout-draft";
 import styles from "./payment-dialog.module.scss";
 
 type CartItem = { product: RetailyProduct; quantity: number };
-type DiscountDraft = { type: "none" | "fixed" | "percentage"; value: string };
-
 interface PaymentDialogProps {
   isOpen: boolean;
   branch: RetailyBranch;
   currency: string;
   cart: CartItem[];
   permissions: string[];
+  draft: CheckoutDraft;
+  dispatchDraft: (action: CheckoutDraftAction) => void;
   onClose: () => void;
+  onDiscard: () => void;
   onSubmit: (request: RetailyCreateSaleRequest) => void;
 }
 
@@ -37,8 +44,6 @@ const paymentOptions = [
   { label: "Bank transfer", value: "bank_transfer" },
   { label: "Other", value: "other" },
 ];
-
-const noDiscount: DiscountDraft = { type: "none", value: "" };
 
 function toBps(value: string): number | null {
   const trimmed = value.trim();
@@ -58,7 +63,9 @@ function toCheckoutDiscount(
     const value = toBps(draft.value);
     return value === null ? null : { type: "percentage", value };
   }
-  const value = parseMinorAmount(draft.value, currencyFractionDigits(currency));
+  const fractionDigits = currencyFractionDigits(currency);
+  if (fractionDigits === null) return null;
+  const value = parseMinorAmount(draft.value, fractionDigits);
   return value === null || value <= 0 ? null : { type: "fixed", value };
 }
 
@@ -75,16 +82,18 @@ export default function PaymentDialog({
   currency,
   cart,
   permissions,
+  draft,
+  dispatchDraft,
   onClose,
+  onDiscard,
   onSubmit,
 }: PaymentDialogProps) {
   const canDiscountFull = permissions.includes("*") || permissions.includes("sales.discount_full");
   const canDiscountLimited = permissions.includes("sales.discount_limited");
   const canDiscount = canDiscountFull || canDiscountLimited;
   const fractionDigits = currencyFractionDigits(currency);
-  const [itemDiscounts, setItemDiscounts] = useState<Record<string, DiscountDraft>>({});
-  const [overallDiscount, setOverallDiscount] = useState<DiscountDraft>(noDiscount);
-  const [payments, setPayments] = useState<PaymentDraft[]>([]);
+  const currencyValid = fractionDigits !== null;
+  const { itemDiscounts, overallDiscount, payments } = draft;
   const [entryError, setEntryError] = useState("");
 
   const convertedItems = useMemo(() => cart.map(({ product, quantity }) => {
@@ -110,28 +119,26 @@ export default function PaymentDialog({
   const paymentTotals = calculatePaymentTotals(payments, totals.totalMinor, fractionDigits);
 
   function updatePayment(index: number, patch: Partial<PaymentDraft>) {
-    setPayments((entries) => entries.map((entry, itemIndex) =>
-      itemIndex === index ? { ...entry, ...patch } : entry,
-    ));
+    dispatchDraft({ type: "payment-update", index, patch });
   }
 
   function setItemDiscount(productId: string, patch: Partial<DiscountDraft>) {
-    setItemDiscounts((current) => ({
-      ...current,
-      [productId]: { ...(current[productId] ?? noDiscount), ...patch },
-    }));
+    dispatchDraft({ type: "item-discount", productId, patch });
   }
 
   function setSaleDiscount(patch: Partial<DiscountDraft>) {
-    setOverallDiscount((current) => ({ ...current, ...patch }));
+    dispatchDraft({ type: "sale-discount", patch });
   }
 
   function addPayment() {
-    if (payments.length >= 10) return;
-    setPayments((entries) => [...entries, { method: "cash", amount: "", reference: "", notes: "" }]);
+    dispatchDraft({ type: "payment-add" });
   }
 
   function submit() {
+    if (!currencyValid) {
+      setEntryError("The business currency is invalid. Correct the currency configuration before taking payment.");
+      return;
+    }
     if (!totals.valid || !convertedOverallDiscount || convertedItems.some((item) => !item.discount)) {
       setEntryError(
         canDiscountLimited && !canDiscountFull
@@ -183,14 +190,16 @@ export default function PaymentDialog({
       closeOnOverlayClick={false}
       footer={(
         <div className={styles.footer}>
+          <Button variant="outline" onClick={onDiscard}>Discard draft</Button>
           <Button variant="outline" onClick={onClose}>Back to cart</Button>
-          <Button onClick={submit} disabled={!totals.valid || payments.length === 0}>
+          <Button onClick={submit} disabled={!currencyValid || !totals.valid || payments.length === 0}>
             Save attempt and complete sale
           </Button>
         </div>
       )}
     >
       <div className={styles.layout}>
+        {!currencyValid && <div className={styles.formError} role="alert">The configured business currency is invalid. Payment is disabled until it is corrected.</div>}
         <section className={styles.main}>
           <div className={styles.branch}><span>Branch</span><strong>{branch.name}</strong><small>{branch.code}</small></div>
           <div className={styles.sectionHeading}><div><h3>Sale items</h3><p>Prices are confirmed by the server at checkout.</p></div><span>{cart.length} lines</span></div>
@@ -270,7 +279,7 @@ export default function PaymentDialog({
                 <Input label={`Amount (${currency})`} inputMode="decimal" value={payment.amount} onChange={(event) => updatePayment(index, { amount: event.target.value })} placeholder="0.00" />
                 <Input label="Reference (optional)" value={payment.reference} maxLength={120} onChange={(event) => updatePayment(index, { reference: event.target.value })} />
                 <Input label="Notes (optional)" value={payment.notes} maxLength={500} onChange={(event) => updatePayment(index, { notes: event.target.value })} />
-                <button type="button" className={styles.removePayment} aria-label={`Remove payment ${index + 1}`} onClick={() => setPayments((entries) => entries.filter((_, itemIndex) => itemIndex !== index))} disabled={payments.length <= 1}><Trash2 size={17} /></button>
+                <button type="button" className={styles.removePayment} aria-label={`Remove payment ${index + 1}`} onClick={() => dispatchDraft({ type: "payment-remove", index })} disabled={payments.length <= 1}><Trash2 size={17} /></button>
               </div>
             ))}
             {payments.length === 0 && <div className={styles.emptyPayments}><Minus size={16} /> Add a payment entry to continue.</div>}

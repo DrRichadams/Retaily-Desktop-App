@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   calculateCheckoutTotals,
   calculatePaymentTotals,
+  currencyFractionDigits,
+  formatMinor,
   parseMinorAmount,
   type CheckoutLineInput,
   type PaymentDraft,
@@ -23,6 +25,19 @@ function paymentTotals(entries: PaymentDraft[], total = 1000n) {
 }
 
 function main() {
+  assert.equal(formatMinor(12345, "USD").includes("$123.45"), true);
+  assert.equal(formatMinor(12345, "JPY").includes("12,345"), true);
+  assert.equal(formatMinor(12345, "BHD").includes("12.345"), true);
+  assert.equal(currencyFractionDigits("USD"), 2);
+  assert.equal(currencyFractionDigits("JPY"), 0);
+  assert.equal(currencyFractionDigits("BHD"), 3);
+  assert.equal(currencyFractionDigits("!!!"), null);
+  assert.equal(formatMinor(12345, "!!!").includes("USD"), false);
+  assert.equal(formatMinor(12345, "!!!"), "Invalid currency");
+  const invalidCurrencyPayments = calculatePaymentTotals([payment("cash", "10.00")], 1000n, null);
+  assert.equal(invalidCurrencyPayments.validAmounts, false);
+  assert.deepEqual(invalidCurrencyPayments.amounts, [null]);
+
   assert.equal(parseMinorAmount("12.34", 2), 1234);
   assert.equal(parseMinorAmount("12.345", 2), null);
   assert.equal(parseMinorAmount("90071992547409.92", 2), null);

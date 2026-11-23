@@ -16,6 +16,12 @@ export interface PaymentDraft {
   notes: string;
 }
 
+const CURRENCY_CODES = new Set(
+  typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("currency")
+    : [],
+);
+
 export interface CheckoutTotals {
   valid: boolean;
   originalSubtotalMinor: bigint;
@@ -27,14 +33,16 @@ export interface CheckoutTotals {
 
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
-export function currencyFractionDigits(currency: string): number {
+export function currencyFractionDigits(currency: string): number | null {
+  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+  if (!/^[A-Z]{3}$/.test(code) || !CURRENCY_CODES.has(code)) return null;
   try {
     return new Intl.NumberFormat("en", {
       style: "currency",
-      currency: currency.trim().toUpperCase(),
-    }).resolvedOptions().maximumFractionDigits ?? 2;
+      currency: code,
+    }).resolvedOptions().maximumFractionDigits ?? null;
   } catch {
-    return 2;
+    return null;
   }
 }
 
@@ -52,15 +60,10 @@ export function parseMinorAmount(value: string, fractionDigits: number): number 
 }
 
 export function formatMinor(amountMinor: bigint | number, currency: string): string {
-  const safeCurrency = currency.trim().toUpperCase();
-  let code = safeCurrency;
-  try {
-    new Intl.NumberFormat("en", { style: "currency", currency: code });
-  } catch {
-    code = "USD";
-  }
-  const amount = typeof amountMinor === "bigint" ? amountMinor : BigInt(amountMinor);
+  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
   const digits = currencyFractionDigits(code);
+  if (digits === null) return "Invalid currency";
+  const amount = typeof amountMinor === "bigint" ? amountMinor : BigInt(amountMinor);
   const scale = 10n ** BigInt(digits);
   const whole = amount / scale;
   const fraction = (amount % scale).toString().padStart(digits, "0");
@@ -171,9 +174,11 @@ export interface PaymentTotals {
 export function calculatePaymentTotals(
   entries: PaymentDraft[],
   totalMinor: bigint,
-  fractionDigits: number,
+  fractionDigits: number | null,
 ): PaymentTotals {
-  const amounts = entries.map((entry) => parseMinorAmount(entry.amount, fractionDigits));
+  const amounts = fractionDigits === null
+    ? entries.map(() => null)
+    : entries.map((entry) => parseMinorAmount(entry.amount, fractionDigits));
   const validAmounts = entries.length > 0 && amounts.every(
     (amount) => amount !== null && amount > 0,
   );
