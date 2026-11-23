@@ -1,0 +1,27 @@
+.confirmed { display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 16px; border: 1px solid #d9efe0; border-radius: 10px; background: #f1faf4; }
+.check { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #168d45; }
+.confirmed > div { display: grid; gap: 4px; }
+.confirmed strong { color: #1b5732; font-size: 15px; }
+.confirmed span:not(.check) { color: #668272; font-size: 11px; }
+.meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-bottom: 16px; border-bottom: 1px solid #edf0f4; }
+.meta > div { display: grid; gap: 5px; }
+.meta span, .totals span { color: #8290a1; font-size: 10px; }
+.meta strong { color: #344156; font-size: 11px; }
+.sectionTitle { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 9px; }
+.sectionTitle h3, .paymentList h3 { margin: 0; color: #2c394d; font-size: 13px; }
+.sectionTitle span { color: #8290a1; font-size: 10px; }
+.items { display: grid; gap: 8px; max-height: 190px; overflow: auto; }
+.item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f2f5; }
+.item > div { display: grid; gap: 4px; }
+.item strong, .item b { color: #304056; font-size: 11px; }
+.item span, .item small { color: #8290a1; font-size: 10px; }
+.item small { color: #9b6c1d; }
+.paymentList { display: grid; gap: 8px; padding: 14px 0; }
+.paymentList > div { display: flex; justify-content: space-between; color: #68768a; font-size: 11px; text-transform: capitalize; }
+.paymentList strong { color: #344156; }
+.totals { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #edf0f4; }
+.totals > div { display: flex; justify-content: space-between; gap: 10px; }
+.totals strong { color: #344156; font-size: 11px; }
+.totals .grandTotal { padding-top: 8px; border-top: 1px solid #edf0f4; }
+.grandTotal span, .grandTotal strong { color: #1a2332; font-size: 14px; font-weight: 750; }
+@media (max-width: 700px) { .meta { grid-template-columns: 1fr; } }

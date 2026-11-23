@@ -1,0 +1,22 @@
+.status { display: flex; align-items: flex-start; gap: 11px; padding: 12px; margin-bottom: 16px; border-radius: 9px; }
+.status > div { display: grid; gap: 5px; }
+.status strong { font-size: 12px; }
+.status span { font-size: 11px; line-height: 1.5; }
+.pending { color: #176c3a; background: #eef8f1; }
+.uncertain { color: #815b10; background: #fff8e7; }
+.rejected { color: #963b35; background: #fff1f0; }
+.details { display: grid; gap: 8px; padding: 12px 0; border-block: 1px solid #edf0f4; }
+.details > div { display: grid; grid-template-columns: 100px 1fr; gap: 10px; align-items: center; }
+.details span { color: #8390a1; font-size: 10px; }
+.details strong { color: #344156; font-size: 11px; }
+.details code { overflow-wrap: anywhere; color: #344156; font-size: 10px; }
+.heading { margin: 15px 0 8px; color: #344156; font-size: 12px; }
+.items, .payments { display: grid; gap: 7px; }
+.items > div, .payments > div { display: flex; justify-content: space-between; gap: 12px; color: #5b687c; font-size: 11px; }
+.items > div { flex-wrap: wrap; }
+.items small { color: #8e7a55; font-size: 10px; }
+.payments strong { color: #344156; }
+.retained { padding: 10px; border-radius: 7px; color: #7a5a21; background: #fff8e7; font-size: 10px; line-height: 1.5; }
+.actions { width: 100%; display: flex; justify-content: flex-end; gap: 9px; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

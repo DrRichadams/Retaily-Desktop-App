@@ -9,6 +9,8 @@
     "test:sales-idempotency": "node sales-idempotency-test-runner.cjs",
     "test:checkout-attempts": "node checkout-attempts-test-runner.cjs",
     "test:sales-transport": "node sales-transport-test-runner.cjs",
+    "test:checkout-calculations": "node checkout-calculations-test-runner.cjs",
+    "test:checkout-flow": "node checkout-attempt-flow-test-runner.cjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

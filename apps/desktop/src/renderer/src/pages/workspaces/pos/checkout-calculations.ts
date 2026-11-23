@@ -32,7 +32,7 @@ export function currencyFractionDigits(currency: string): number {
     return new Intl.NumberFormat("en", {
       style: "currency",
       currency: currency.trim().toUpperCase(),
-    }).resolvedOptions().maximumFractionDigits;
+    }).resolvedOptions().maximumFractionDigits ?? 2;
   } catch {
     return 2;
   }
@@ -42,7 +42,7 @@ export function parseMinorAmount(value: string, fractionDigits: number): number 
   const input = value.trim();
   if (!input || !/^\d+(?:\.\d*)?$/.test(input)) return null;
   const [wholeText, fractionText = ""] = input.split(".");
-  if (fractionText.length > fractionDigits) return null;
+  if (wholeText.length > 16 || fractionText.length > fractionDigits) return null;
   const scale = 10n ** BigInt(fractionDigits);
   const fraction = fractionDigits
     ? BigInt((fractionText || "0").padEnd(fractionDigits, "0"))

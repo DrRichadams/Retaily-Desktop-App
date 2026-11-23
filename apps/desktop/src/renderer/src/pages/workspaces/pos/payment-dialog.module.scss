@@ -1,0 +1,55 @@
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
+.main { min-width: 0; }
+.branch { display: flex; align-items: baseline; gap: 10px; padding: 11px 13px; margin-bottom: 18px; border: 1px solid #e6ebf0; border-radius: 9px; background: #f8fafb; }
+.branch span { color: #8994a5; font-size: 11px; }
+.branch strong { color: #263449; font-size: 13px; }
+.branch small { color: #8d98a7; font-size: 11px; }
+.sectionHeading, .paymentHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.sectionHeading h3, .paymentHeading h3, .overallDiscount h3 { margin: 0; color: #263449; font-size: 14px; }
+.sectionHeading p, .paymentHeading p, .overallDiscount p { margin: 4px 0 0; color: #8893a3; font-size: 11px; }
+.sectionHeading > span { color: #8792a3; font-size: 11px; }
+.items { display: grid; gap: 8px; max-height: 230px; overflow: auto; }
+.item { padding: 10px 12px; border: 1px solid #edf0f4; border-radius: 9px; }
+.itemHeading { display: flex; justify-content: space-between; gap: 12px; }
+.itemHeading > div { display: grid; gap: 4px; }
+.itemHeading strong { color: #273448; font-size: 12px; }
+.itemHeading small { color: #8994a5; font-size: 10px; }
+.itemHeading b { color: #29364a; font-size: 12px; white-space: nowrap; }
+.discountRow { display: flex; align-items: end; gap: 10px; margin-top: 9px; }
+.discountRow label, .overallDiscount label { display: grid; gap: 4px; color: #7c8798; font-size: 10px; }
+.discountRow select, .discountRow input, .overallDiscount select, .overallDiscount input { min-width: 130px; height: 34px; padding: 0 9px; border: 1px solid #dfe5ec; border-radius: 7px; color: #273448; background: #fff; font: inherit; font-size: 12px; }
+.discountRow .discountValue { flex: 1; }
+.discountRow .discountValue input { width: 100%; }
+.overallDiscount { display: flex; align-items: end; gap: 12px; padding: 13px 0 16px; margin-bottom: 16px; border-bottom: 1px solid #edf0f4; }
+.overallDiscount > div { flex: 1; }
+.overallDiscount label { min-width: 135px; }
+.overallDiscount label input, .overallDiscount label select { width: 100%; }
+.paymentHeading { margin: 4px 0 12px; }
+.paymentList { display: grid; gap: 10px; }
+.paymentRow { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 34px; gap: 9px; align-items: end; padding: 11px; border: 1px solid #e9edf2; border-radius: 9px; }
+.paymentRow :global(input), .paymentRow :global(select) { min-width: 0; }
+.removePayment { width: 32px; height: 36px; display: grid; place-items: center; margin-bottom: 1px; border: 0; border-radius: 7px; color: #9b6765; background: #fff4f2; cursor: pointer; }
+.removePayment:disabled { opacity: .45; cursor: not-allowed; }
+.emptyPayments { display: flex; align-items: center; gap: 7px; padding: 14px; color: #8893a3; font-size: 12px; }
+.formError { padding: 10px 12px; margin-top: 12px; border-radius: 8px; color: #9e302c; background: #fff1f0; font-size: 12px; }
+.summary { position: sticky; top: 0; display: grid; gap: 14px; padding: 17px; border: 1px solid #e5eaf0; border-radius: 12px; background: #f9fbfa; }
+.summaryEyebrow { margin-bottom: 3px; color: #8994a5; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+.summary > div { display: flex; justify-content: space-between; gap: 10px; color: #677387; font-size: 12px; }
+.summary > div strong { color: #2b394e; text-align: right; }
+.summary .total { padding-top: 12px; border-top: 1px solid #e3e9e5; color: #273448; font-weight: 700; }
+.summary .total strong { font-size: 18px; }
+.summary .balance { color: #98640e; }
+.summary .balance strong { color: #98640e; }
+.summary .change { color: #158044; }
+.summary .change strong { color: #158044; }
+.cashWarning, .permissionNote { margin: -3px 0 0; color: #9e302c; font-size: 10px; line-height: 1.5; }
+.permissionNote { color: #7b8797; }
+.footer { width: 100%; display: flex; justify-content: space-between; gap: 10px; }
+
+@media (max-width: 1000px) {
+  .layout { grid-template-columns: 1fr; }
+  .summary { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summaryEyebrow { grid-column: 1 / -1; }
+  .paymentRow { grid-template-columns: 1fr 1fr; }
+  .removePayment { justify-self: end; }
+}

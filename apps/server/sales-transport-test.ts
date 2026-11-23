@@ -117,18 +117,67 @@ async function main() {
     { kind: "unknown", status: null, code: "MALFORMED_SALES_RESPONSE", outcome: "unknown", idempotencyKey: "transport-test-key" },
   );
 
+  await expectFailure(
+    await requestSales(
+      "http://127.0.0.1:4317/api/sales/checkout-attempts",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": "save-response-key" },
+        body: JSON.stringify({}),
+      },
+      "test-session",
+      async () => jsonResponse(200, {}),
+    ),
+    { kind: "unknown", status: null, code: "MALFORMED_SALES_RESPONSE", outcome: "unknown", idempotencyKey: "save-response-key" },
+  );
+
+  await expectFailure(
+    await requestSales(
+      `http://127.0.0.1:4317/api/sales/checkout-attempts/by-key?idempotencyKey=${encodeURIComponent("lookup-response-key")}`,
+      { method: "GET" },
+      "test-session",
+      async () => jsonResponse(200, { data: { status: "completed" } }),
+    ),
+    { kind: "unknown", status: null, code: "MALFORMED_SALES_RESPONSE", outcome: "unknown", idempotencyKey: "lookup-response-key" },
+  );
+
   const validSaleResponse = {
     message: "Sale completed successfully.",
     data: {
       id: "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+      businessId: "6ba7b813-9dad-41d1-80b4-00c04fd430c8",
+      employeeId: "6ba7b814-9dad-41d1-80b4-00c04fd430c8",
+      customerId: null,
       saleNumber: "SAL-001",
       receiptNumber: "RCT-001",
       branchId: "6ba7b811-9dad-41d1-80b4-00c04fd430c8",
+      status: "completed",
+      currency: "USD",
       subtotalMinor: 100,
+      discountType: "none",
+      discountValue: 0,
       discountAmountMinor: 0,
       totalMinor: 100,
       amountPaidMinor: 100,
       changeMinor: 0,
+      notes: null,
+      completedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      items: [{
+        id: "6ba7b815-9dad-41d1-80b4-00c04fd430c8",
+        productId: "6ba7b816-9dad-41d1-80b4-00c04fd430c8",
+        productName: "Test item",
+        productSku: "TEST-001",
+        productUnit: "each",
+        quantity: 1,
+        unitCostMinor: 40,
+        unitPriceMinor: 100,
+        lineSubtotalMinor: 100,
+        discountType: "none",
+        discountValue: 0,
+        discountAmountMinor: 0,
+        lineTotalMinor: 100,
+      }],
       payments: [{
         id: "6ba7b812-9dad-41d1-80b4-00c04fd430c8",
         paymentMethod: "cash",

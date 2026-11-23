@@ -367,6 +367,24 @@ async function main() {
     });
     assert.equal(completedModification.statusCode, 409);
     assert.equal(completedModification.json().code, "CHECKOUT_ATTEMPT_CONFLICT");
+
+    // A committed sale and its attempt can both be recovered after reopening
+    // the database, as happens when the renderer loses its response.
+    await app.close();
+    app = null;
+    db.close();
+    db = new Database(databasePath);
+    configureDb();
+    app = await createApp();
+    const completedAfterRestart = await app.inject({
+      method: "GET",
+      url: `/api/sales/checkout-attempts/by-key?idempotencyKey=${recoveryKey}`,
+      headers: primaryHeaders,
+    });
+    assert.equal(completedAfterRestart.statusCode, 200, completedAfterRestart.body);
+    assert.equal(completedAfterRestart.json().data.status, "completed");
+    assert.deepEqual(completedAfterRestart.json().data.sale, sale);
+
     const newAttempt = await app.inject({
       method: "POST",
       url: "/api/sales/checkout-attempts",
@@ -451,6 +469,33 @@ async function main() {
         .get(primary.businessId, failedKey) as { count: number }).count,
       0,
     );
+
+    // A changed server price still rejects stale tender without completing
+    // the saved attempt; the renderer can then prepare a new request and key.
+    const stalePriceKey = "stale-product-price-attempt";
+    const stalePriceSave = await app.inject({
+      method: "POST",
+      url: "/api/sales/checkout-attempts",
+      headers: withKey(stalePriceKey),
+      payload,
+    });
+    assert.equal(stalePriceSave.statusCode, 200, stalePriceSave.body);
+    db.prepare("UPDATE products SET selling_price_minor = 600 WHERE id = ?").run(product.id);
+    const stalePriceSale = await app.inject({
+      method: "POST",
+      url: "/api/sales",
+      headers: withKey(stalePriceKey),
+      payload,
+    });
+    assert.equal(stalePriceSale.statusCode, 400, stalePriceSale.body);
+    assert.equal(stalePriceSale.json().code, "INSUFFICIENT_PAYMENT");
+    db.prepare("UPDATE products SET selling_price_minor = 500 WHERE id = ?").run(product.id);
+    const stalePriceAttempt = await app.inject({
+      method: "GET",
+      url: `/api/sales/checkout-attempts/by-key?idempotencyKey=${stalePriceKey}`,
+      headers: primaryHeaders,
+    });
+    assert.equal(stalePriceAttempt.json().data.status, "pending");
 
     // Legacy keyless creation is still accepted without a durable attempt.
     const keyless = await app.inject({
