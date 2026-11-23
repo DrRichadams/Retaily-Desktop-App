@@ -24,4 +24,6 @@
 .totals strong { color: #344156; font-size: 11px; }
 .totals .grandTotal { padding-top: 8px; border-top: 1px solid #edf0f4; }
 .grandTotal span, .grandTotal strong { color: #1a2332; font-size: 14px; font-weight: 750; }
+.footer { width: 100%; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.receiptError { padding: 14px; border: 1px solid #f1cfcd; border-radius: 9px; color: #9e302c; background: #fff1f0; font-size: 13px; }
 @media (max-width: 700px) { .meta { grid-template-columns: 1fr; } }

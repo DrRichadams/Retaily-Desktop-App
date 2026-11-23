@@ -1,0 +1,46 @@
+.preview { display: grid; gap: 12px; min-width: 0; }
+.toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 9px; color: var(--text-secondary, #68768a); font-size: 12px; }
+.toolbar select { padding: 7px 10px; border: 1px solid var(--border, #dfe5ec); border-radius: 7px; color: var(--text-primary, #273448); background: var(--surface, #fff); font: inherit; }
+.stage { box-sizing: border-box; display: flex; justify-content: safe center; min-width: 0; max-height: min(64vh, 650px); overflow: auto; overscroll-behavior: contain; padding: 18px; border: 1px solid var(--border, #e4e9ef); border-radius: 10px; background: var(--surface-subtle, #f1f3f5); }
+.paper { box-sizing: border-box; flex: 0 0 auto; align-self: flex-start; padding: 18px 13px; color: #202124; background: #fff; box-shadow: 0 3px 14px #15203320; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; line-height: 1.45; word-break: normal; overflow-wrap: normal; }
+.paper58 { width: 58mm; }
+.paper80 { width: 80mm; }
+.business { padding-bottom: 12px; border-bottom: 1px dashed #8c9299; text-align: center; overflow-wrap: break-word; }
+.business h2 { margin: 0; font-size: 15px; line-height: 1.25; overflow-wrap: break-word; }
+.business p { margin: 4px 0 0; color: #4b5055; overflow-wrap: break-word; }
+.metadata { display: grid; gap: 3px; min-width: 0; padding: 10px 0; border-bottom: 1px dashed #8c9299; }
+.metadata > div, .columnHead, .itemDetail, .totals > div, .payment { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.metadata > div { align-items: flex-start; }
+.metadata span, .itemDetail, .totals span, .payment span { color: #4b5055; }
+.metadata strong { min-width: 0; text-align: right; overflow-wrap: break-word; }
+.identifier { overflow-wrap: break-word; }
+.items { min-width: 0; padding: 10px 0; border-bottom: 1px dashed #8c9299; }
+.columnHead { padding-bottom: 5px; font-weight: 700; }
+.columnHead span:last-child { white-space: nowrap; text-align: right; }
+.item { min-width: 0; padding: 7px 0; border-top: 1px dotted #c9cdd1; }
+.itemTitle { display: grid; gap: 1px; min-width: 0; }
+.itemTitle strong { font-size: 10px; overflow-wrap: break-word; }
+.itemTitle small, .discount, .payment small { color: #5f6469; font-size: 9px; }
+.itemTitle small { overflow-wrap: break-word; }
+.itemDetail { align-items: flex-start; flex-wrap: wrap; margin-top: 3px; font-size: 9px; }
+.itemMeasure { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 0 3px; min-width: 0; }
+.quantity, .money { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.itemDetail > .money { margin-left: auto; }
+.discount { display: block; margin-top: 2px; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+.totals { display: grid; gap: 5px; min-width: 0; padding: 10px 0; border-bottom: 1px dashed #8c9299; }
+.totals > div { align-items: baseline; }
+.totals > div > span { min-width: 0; }
+.totals > div > strong { flex: 0 0 auto; text-align: right; }
+.total { padding-top: 6px; border-top: 1px solid #696e73; font-size: 11px; font-weight: 800; }
+.payments { display: grid; gap: 6px; min-width: 0; padding: 10px 0; }
+.payments h3 { margin: 0 0 2px; font-size: 10px; text-transform: uppercase; }
+.payment > div { display: grid; min-width: 0; gap: 1px; }
+.payment > strong { flex: 0 0 auto; text-align: right; }
+.payment small { overflow-wrap: anywhere; }
+.reference { min-width: 0; }
+.thanks { padding-top: 9px; border-top: 1px dashed #8c9299; text-align: center; font-weight: 700; }
+
+@media (max-width: 600px) {
+  .stage { justify-content: flex-start; padding: 10px; }
+  .paper { padding: 14px 10px; }
+}

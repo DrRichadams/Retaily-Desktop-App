@@ -12,6 +12,8 @@
     "test:checkout-calculations": "node checkout-calculations-test-runner.cjs",
     "test:checkout-flow": "node checkout-attempt-flow-test-runner.cjs",
     "test:checkout-draft": "node checkout-draft-test-runner.cjs",
+    "test:hardware-core": "node hardware-core-test-runner.cjs",
+    "test:receipt": "node receipt-engine-test-runner.cjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

@@ -749,6 +749,7 @@ export default function PosPage({ user }: { user: CurrentUser }) {
       {completedSale && (
         <SaleConfirmation
           sale={completedSale}
+          businessName={user.business.name}
           branchName={branches.find((branch) => branch.id === completedSale.branchId)?.name ?? "Branch unavailable"}
           cashier={user.fullName}
           onNewSale={startNewSale}
