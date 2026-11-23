@@ -1,10 +1,135 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import {
+  salesLocalFailure,
+} from "../shared/sales-ipc.js";
+import { requestSales } from "../shared/sales-transport.js";
 
 let mainWindow: BrowserWindow | null = null;
 let sessionToken: string | null = null;
 
 const SERVER_URL = "http://127.0.0.1:4317";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateIdempotencyKey(value: unknown) {
+  if (typeof value !== "string") {
+    throw new Error("A valid Idempotency-Key is required.");
+  }
+
+  const key = value.trim();
+
+  if (key.length < 1 || key.length > 128 || !/^[\x21-\x7E]+$/.test(key)) {
+    throw new Error("A valid Idempotency-Key is required.");
+  }
+
+  return key;
+}
+
+async function salesRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<import("../shared/sales-ipc.js").SalesIpcResult<T>> {
+  return requestSales<T>(`${SERVER_URL}${endpoint}`, options, sessionToken);
+}
+
+function validateDate(value: unknown, field: string): string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) ||
+    new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) !== value
+  ) {
+    throw new Error(`Invalid sales query field: ${field}.`);
+  }
+
+  return value;
+}
+
+function buildSalesListEndpoint(value: unknown = {}) {
+  if (!isRecord(value)) {
+    throw new Error("Invalid sales list query.");
+  }
+
+  const allowedFields = new Set([
+    "branchId",
+    "customerId",
+    "employeeId",
+    "status",
+    "search",
+    "dateFrom",
+    "dateTo",
+    "page",
+    "limit",
+  ]);
+
+  if (Object.keys(value).some((field) => !allowedFields.has(field))) {
+    throw new Error("Unsupported sales list query field.");
+  }
+
+  const query = new URLSearchParams();
+
+  for (const field of ["branchId", "customerId", "employeeId"] as const) {
+    const fieldValue = value[field];
+
+    if (fieldValue === undefined) continue;
+
+    if (typeof fieldValue !== "string" || !UUID_PATTERN.test(fieldValue)) {
+      throw new Error(`Invalid sales query field: ${field}.`);
+    }
+
+    query.set(field, fieldValue);
+  }
+
+  if (value.status !== undefined) {
+    if (value.status !== "completed" && value.status !== "voided") {
+      throw new Error("Invalid sales query field: status.");
+    }
+
+    query.set("status", value.status);
+  }
+
+  if (value.search !== undefined) {
+    if (typeof value.search !== "string" || value.search.length > 100) {
+      throw new Error("Invalid sales query field: search.");
+    }
+
+    query.set("search", value.search);
+  }
+
+  for (const field of ["dateFrom", "dateTo"] as const) {
+    const fieldValue = value[field];
+
+    if (fieldValue !== undefined) {
+      query.set(field, validateDate(fieldValue, field));
+    }
+  }
+
+  for (const field of ["page", "limit"] as const) {
+    const fieldValue = value[field];
+    const maximum = field === "page" ? Number.MAX_SAFE_INTEGER : 100;
+
+    if (fieldValue !== undefined) {
+      if (
+        typeof fieldValue !== "number" ||
+        !Number.isInteger(fieldValue) ||
+        fieldValue < 1 ||
+        fieldValue > maximum
+      ) {
+        throw new Error(`Invalid sales query field: ${field}.`);
+      }
+
+      query.set(field, String(fieldValue));
+    }
+  }
+
+  const queryString = query.toString();
+  return `/api/sales${queryString ? `?${queryString}` : ""}`;
+}
 
 async function serverRequest<T>(
   endpoint: string,
@@ -27,11 +152,13 @@ async function serverRequest<T>(
     ...options,
     headers,
   });
-
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || `Server request failed (${response.status})`);
+    const errorMessage = isRecord(data) && typeof data.error === "string"
+      ? data.error
+      : `Server request failed (${response.status})`;
+    throw new Error(errorMessage);
   }
 
   return data as T;
@@ -157,6 +284,23 @@ function registerIpcHandlers() {
   });
 
   // ==========================================
+  // BRANCHES
+  // Fixed authenticated listing; renderer cannot choose a path or method.
+  // ==========================================
+
+  ipcMain.handle("branches:list", async () => {
+    return serverRequest<{
+      success: true;
+      data: Array<{
+        id: string;
+        name: string;
+        code: string;
+        isHeadquarters: boolean;
+      }>;
+    }>("/api/branches", { method: "GET" }, true);
+  });
+
+  // ==========================================
   // PRODUCTS
   // ==========================================
 
@@ -197,6 +341,108 @@ function registerIpcHandlers() {
       );
     },
   );
+
+  // ==========================================
+  // SALES
+  // Fixed operations only; renderer cannot choose an endpoint or method.
+  // ==========================================
+
+  ipcMain.handle(
+    "sales:create",
+    async (_event, input: unknown, rawIdempotencyKey: unknown) => {
+      if (!isRecord(input)) {
+        return { ok: false, error: salesLocalFailure("Invalid sale request.") };
+      }
+
+      let idempotencyKey: string;
+      try {
+        idempotencyKey = validateIdempotencyKey(rawIdempotencyKey);
+      } catch {
+        return {
+          ok: false,
+          error: salesLocalFailure(
+            "A valid Idempotency-Key is required.",
+            "INVALID_IDEMPOTENCY_KEY",
+          ),
+        };
+      }
+
+      return salesRequest("/api/sales", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      });
+    },
+  );
+
+  ipcMain.handle("sales:list", async (_event, query: unknown = {}) => {
+    try {
+      return salesRequest(buildSalesListEndpoint(query), { method: "GET" });
+    } catch {
+      return { ok: false, error: salesLocalFailure("Invalid sales list query.") };
+    }
+  });
+
+  ipcMain.handle("sales:get", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "string" || !UUID_PATTERN.test(rawId)) {
+      return { ok: false, error: salesLocalFailure("Invalid sale ID.") };
+    }
+
+    return salesRequest(
+      `/api/sales/${encodeURIComponent(rawId)}`,
+      { method: "GET" },
+    );
+  });
+
+  ipcMain.handle(
+    "sales:attempt:save",
+    async (_event, input: unknown, rawIdempotencyKey: unknown) => {
+      if (!isRecord(input)) {
+        return { ok: false, error: salesLocalFailure("Invalid checkout attempt request.") };
+      }
+      let idempotencyKey: string;
+      try {
+        idempotencyKey = validateIdempotencyKey(rawIdempotencyKey);
+      } catch {
+        return {
+          ok: false,
+          error: salesLocalFailure(
+            "A valid Idempotency-Key is required.",
+            "INVALID_IDEMPOTENCY_KEY",
+          ),
+        };
+      }
+      return salesRequest("/api/sales/checkout-attempts", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      });
+    },
+  );
+
+  ipcMain.handle("sales:attempt:list-pending", async () =>
+    salesRequest("/api/sales/checkout-attempts", { method: "GET" }),
+  );
+
+  ipcMain.handle("sales:attempt:get", async (_event, rawIdempotencyKey: unknown) => {
+    let idempotencyKey: string;
+    try {
+      idempotencyKey = validateIdempotencyKey(rawIdempotencyKey);
+    } catch {
+      return {
+        ok: false,
+        error: salesLocalFailure(
+          "A valid Idempotency-Key is required.",
+          "INVALID_IDEMPOTENCY_KEY",
+        ),
+      };
+    }
+    const query = new URLSearchParams({ idempotencyKey });
+    return salesRequest(
+      `/api/sales/checkout-attempts/by-key?${query.toString()}`,
+      { method: "GET" },
+    );
+  });
 }
 
 function createWindow() {

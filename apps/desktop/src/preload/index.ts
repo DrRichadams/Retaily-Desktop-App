@@ -28,12 +28,35 @@ const retailyAPI = {
     currency: string;
   }) => ipcRenderer.invoke("onboarding:create-owner", details),
 
+  branches: {
+    list: () => ipcRenderer.invoke("branches:list"),
+  },
+
   products: {
     request: (request: {
       method: "GET" | "POST" | "PATCH";
       endpoint: string;
       body?: unknown;
     }) => ipcRenderer.invoke("products:request", request),
+  },
+
+  sales: {
+    createSale: (input: unknown, idempotencyKey: string) =>
+      ipcRenderer.invoke("sales:create", input, idempotencyKey),
+
+    listSales: (query?: unknown) =>
+      ipcRenderer.invoke("sales:list", query),
+
+    getSale: (id: string) => ipcRenderer.invoke("sales:get", id),
+
+    saveCheckoutAttempt: (input: unknown, idempotencyKey: string) =>
+      ipcRenderer.invoke("sales:attempt:save", input, idempotencyKey),
+
+    listPendingCheckoutAttempts: () =>
+      ipcRenderer.invoke("sales:attempt:list-pending"),
+
+    getCheckoutAttempt: (idempotencyKey: string) =>
+      ipcRenderer.invoke("sales:attempt:get", idempotencyKey),
   },
 };
 

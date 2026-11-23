@@ -4,6 +4,17 @@ import type { createSaleSchema, salesListQuerySchema } from "./schemas.js";
 
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 
+export interface CheckoutAttemptResponse {
+  idempotencyKey: string;
+  status: "pending" | "completed";
+  request: CreateSaleInput;
+  saleId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  sale: SaleResponse | null;
+}
+
 export type SalesListQuery = z.infer<typeof salesListQuerySchema>;
 
 export type PaymentMethod =

@@ -26,6 +26,7 @@ import {
 
 import styles from "./workspace-router.module.scss";
 import ProductsPage from "./products/products-page";
+import PosPage from "./pos/pos-page";
 
 type CurrentUser = Awaited<ReturnType<typeof window.retaily.getCurrentUser>>;
 
@@ -737,6 +738,8 @@ function Workspace({
 
           {selectedModule?.label === "Dashboard" ? (
             <Dashboard user={user} role={role} />
+          ) : selectedModule?.label === "Point of Sale" ? (
+            <PosPage user={user} />
           ) : selectedModule?.label === "Products" ? (
             <ProductsPage permissions={user.permissions} />
           ) : selectedModule ? (

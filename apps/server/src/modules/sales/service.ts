@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import type { AuthContext } from "../../middleware/authenticate.js";
@@ -7,6 +7,7 @@ import { applyStockMovement } from "../inventory/service.js";
 
 import type {
   CreateSaleInput,
+  CheckoutAttemptResponse,
   DiscountType,
   PaymentMethod,
   SaleResponse,
@@ -24,6 +25,12 @@ function hasPermission(auth: AuthContext, permission: string) {
   return (
     auth.permissions.includes("*") || auth.permissions.includes(permission)
   );
+}
+
+function assertCanCreateSale(auth: AuthContext) {
+  if (!hasPermission(auth, "sales.create")) {
+    throw new Error("SALE_CREATE_FORBIDDEN");
+  }
 }
 
 function assertCanDiscount(
@@ -204,7 +211,7 @@ function assertCustomerBelongsToBusiness(
   }
 }
 
-function getSaleById(
+export function getSaleById(
   db: Database.Database,
   businessId: string,
   saleId: string,
@@ -292,6 +299,199 @@ function getSaleById(
   };
 }
 
+function normalizedSaleRequest(input: CreateSaleInput) {
+  return {
+    branchId: input.branchId,
+    customerId: input.customerId ?? null,
+    items: input.items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      discount:
+        item.discount?.type === "none" || !item.discount
+          ? { type: "none" as const }
+          : { type: item.discount.type, value: item.discount.value },
+    })),
+    discount:
+      input.discount?.type === "none" || !input.discount
+        ? { type: "none" as const }
+        : { type: input.discount.type, value: input.discount.value },
+    payments: input.payments.map((payment) => ({
+      method: payment.method,
+      amountMinor: payment.amountMinor,
+      reference: payment.reference ?? null,
+      notes: payment.notes ?? null,
+    })),
+    notes: input.notes ?? null,
+  };
+}
+
+export function hashSaleRequest(input: CreateSaleInput) {
+  return createHash("sha256")
+    .update(JSON.stringify(normalizedSaleRequest(input)))
+    .digest("hex");
+}
+
+interface CheckoutAttemptRecord {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  idempotency_key: string;
+  request_payload: string;
+  request_hash: string;
+  status: "pending" | "completed";
+  sale_id: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+function mapCheckoutAttempt(
+  db: Database.Database,
+  record: CheckoutAttemptRecord,
+): CheckoutAttemptResponse {
+  const sale = record.sale_id
+    ? getSaleById(db, record.business_id, record.sale_id)
+    : null;
+
+  if (record.status === "completed" && !sale) {
+    throw new Error("CHECKOUT_ATTEMPT_RECORD_INVALID");
+  }
+
+  return {
+    idempotencyKey: record.idempotency_key,
+    status: record.status,
+    request: JSON.parse(record.request_payload) as CreateSaleInput,
+    saleId: record.sale_id,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    completedAt: record.completed_at,
+    sale,
+  };
+}
+
+export function saveCheckoutAttempt(
+  db: Database.Database,
+  auth: AuthContext,
+  idempotencyKey: string,
+  input: CreateSaleInput,
+): CheckoutAttemptResponse {
+  assertCanCreateSale(auth);
+
+  const requestHash = hashSaleRequest(input);
+  const requestPayload = JSON.stringify(input);
+  const timestamp = now();
+  const transaction = db.transaction(() => {
+    const existing = db
+      .prepare(
+        `SELECT * FROM checkout_attempts
+         WHERE business_id = ? AND idempotency_key = ?`,
+      )
+      .get(auth.businessId, idempotencyKey) as CheckoutAttemptRecord | undefined;
+
+    if (existing) {
+      if (existing.employee_id !== auth.employeeId) {
+        throw new Error("CHECKOUT_ATTEMPT_CONFLICT");
+      }
+
+      if (existing.status === "completed") {
+        if (existing.request_hash !== requestHash) {
+          throw new Error("CHECKOUT_ATTEMPT_CONFLICT");
+        }
+        return mapCheckoutAttempt(db, existing);
+      }
+
+      if (existing.request_hash !== requestHash) {
+        throw new Error("CHECKOUT_ATTEMPT_CONFLICT");
+      }
+
+      return mapCheckoutAttempt(db, existing);
+    }
+
+    const existingSale = db
+      .prepare(
+        `SELECT id, employee_id, idempotency_request_hash, completed_at
+         FROM sales WHERE business_id = ? AND idempotency_key = ?`,
+      )
+      .get(auth.businessId, idempotencyKey) as
+      | {
+          id: string;
+          employee_id: string;
+          idempotency_request_hash: string | null;
+          completed_at: string;
+        }
+      | undefined;
+
+    if (
+      existingSale &&
+      (existingSale.employee_id !== auth.employeeId ||
+        existingSale.idempotency_request_hash !== requestHash)
+    ) {
+      throw new Error("CHECKOUT_ATTEMPT_CONFLICT");
+    }
+
+    const id = randomUUID();
+    const completed = Boolean(existingSale);
+    db.prepare(
+      `INSERT INTO checkout_attempts (
+        id, business_id, employee_id, idempotency_key,
+        request_payload, request_hash, status, sale_id,
+        created_at, updated_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      auth.businessId,
+      auth.employeeId,
+      idempotencyKey,
+      requestPayload,
+      requestHash,
+      completed ? "completed" : "pending",
+      existingSale?.id ?? null,
+      timestamp,
+      timestamp,
+      existingSale?.completed_at ?? null,
+    );
+
+    const created = db
+      .prepare("SELECT * FROM checkout_attempts WHERE id = ?")
+      .get(id) as CheckoutAttemptRecord;
+    return mapCheckoutAttempt(db, created);
+  });
+
+  return transaction.immediate();
+}
+
+export function listPendingCheckoutAttempts(
+  db: Database.Database,
+  auth: AuthContext,
+): CheckoutAttemptResponse[] {
+  assertCanCreateSale(auth);
+  const records = db
+    .prepare(
+      `SELECT * FROM checkout_attempts
+       WHERE business_id = ? AND employee_id = ? AND status = 'pending'
+       ORDER BY updated_at DESC`,
+    )
+    .all(auth.businessId, auth.employeeId) as CheckoutAttemptRecord[];
+  return records.map((record) => mapCheckoutAttempt(db, record));
+}
+
+export function getCheckoutAttempt(
+  db: Database.Database,
+  auth: AuthContext,
+  idempotencyKey: string,
+): CheckoutAttemptResponse | null {
+  assertCanCreateSale(auth);
+  const record = db
+    .prepare(
+      `SELECT * FROM checkout_attempts
+       WHERE business_id = ? AND employee_id = ? AND idempotency_key = ?`,
+    )
+    .get(auth.businessId, auth.employeeId, idempotencyKey) as
+    | CheckoutAttemptRecord
+    | undefined;
+  return record ? mapCheckoutAttempt(db, record) : null;
+}
+
 // ==========================================
 // CREATE SALE
 // ==========================================
@@ -301,49 +501,137 @@ export function createSale(
   auth: AuthContext,
   input: CreateSaleInput,
 ): SaleResponse {
-  if (!hasPermission(auth, "sales.create")) {
-    throw new Error("SALE_CREATE_FORBIDDEN");
-  }
+  return createSaleWithIdempotency(db, auth, input).sale;
+}
 
-  requireBranchAccess(db, auth, input.branchId);
-
-  const branch = db
-    .prepare(
-      `
-    SELECT id
-    FROM branches
-    WHERE id = ?
-      AND business_id = ?
-  `,
-    )
-    .get(input.branchId, auth.businessId);
-
-  if (!branch) {
-    throw new Error("BRANCH_NOT_FOUND");
-  }
-
-  assertCustomerBelongsToBusiness(db, auth.businessId, input.customerId);
-
-  const business = db
-    .prepare(
-      `
-    SELECT currency
-    FROM businesses
-    WHERE id = ?
-  `,
-    )
-    .get(auth.businessId) as { currency: string } | undefined;
-
-  if (!business) {
-    throw new Error("BUSINESS_NOT_FOUND");
-  }
+export function createSaleWithIdempotency(
+  db: Database.Database,
+  auth: AuthContext,
+  input: CreateSaleInput,
+  idempotencyKey?: string,
+): { sale: SaleResponse; replayed: boolean } {
+  assertCanCreateSale(auth);
 
   const saleId = randomUUID();
   const saleNumber = generateSaleNumber("SAL");
   const receiptNumber = generateSaleNumber("RCT");
   const timestamp = now();
 
+  const requestHash = idempotencyKey
+    ? hashSaleRequest(input)
+    : null;
+
   const transaction = db.transaction(() => {
+    const savedAttempt = idempotencyKey
+      ? (db
+          .prepare(
+            `SELECT * FROM checkout_attempts
+             WHERE business_id = ? AND idempotency_key = ?`,
+          )
+          .get(auth.businessId, idempotencyKey) as
+          | CheckoutAttemptRecord
+          | undefined)
+      : undefined;
+
+    if (idempotencyKey && requestHash) {
+      if (
+        savedAttempt &&
+        (savedAttempt.employee_id !== auth.employeeId ||
+          savedAttempt.request_hash !== requestHash)
+      ) {
+        throw new Error("SALE_IDEMPOTENCY_CONFLICT");
+      }
+
+      const existing = db
+        .prepare(
+          `
+          SELECT id, employee_id, idempotency_request_hash
+          FROM sales
+          WHERE business_id = ?
+            AND idempotency_key = ?
+          `,
+        )
+        .get(auth.businessId, idempotencyKey) as
+        | {
+            id: string;
+            employee_id: string;
+            idempotency_request_hash: string | null;
+          }
+        | undefined;
+
+      if (existing) {
+        if (
+          existing.employee_id !== auth.employeeId ||
+          existing.idempotency_request_hash !== requestHash
+        ) {
+          throw new Error("SALE_IDEMPOTENCY_CONFLICT");
+        }
+
+        if (
+          savedAttempt?.status === "completed" &&
+          savedAttempt.sale_id !== existing.id
+        ) {
+          throw new Error("CHECKOUT_ATTEMPT_RECORD_INVALID");
+        }
+
+        const existingSale = getSaleById(db, auth.businessId, existing.id);
+
+        if (!existingSale) {
+          throw new Error("SALE_IDEMPOTENCY_RECORD_INVALID");
+        }
+
+        if (savedAttempt?.status === "pending") {
+          const completion = db.prepare(
+            `UPDATE checkout_attempts
+             SET status = 'completed', sale_id = ?, completed_at = ?, updated_at = ?
+             WHERE id = ? AND status = 'pending'`,
+          ).run(existing.id, timestamp, timestamp, savedAttempt.id);
+          if (completion.changes !== 1) {
+            throw new Error("CHECKOUT_ATTEMPT_UPDATE_FAILED");
+          }
+        }
+
+        return { sale: existingSale, replayed: true };
+      }
+
+      if (savedAttempt?.status === "completed") {
+        throw new Error("CHECKOUT_ATTEMPT_RECORD_INVALID");
+      }
+    }
+
+    requireBranchAccess(db, auth, input.branchId);
+
+    const branch = db
+      .prepare(
+        `
+        SELECT id
+        FROM branches
+        WHERE id = ?
+          AND business_id = ?
+        `,
+      )
+      .get(input.branchId, auth.businessId);
+
+    if (!branch) {
+      throw new Error("BRANCH_NOT_FOUND");
+    }
+
+    assertCustomerBelongsToBusiness(db, auth.businessId, input.customerId);
+
+    const business = db
+      .prepare(
+        `
+        SELECT currency
+        FROM businesses
+        WHERE id = ?
+        `,
+      )
+      .get(auth.businessId) as { currency: string } | undefined;
+
+    if (!business) {
+      throw new Error("BUSINESS_NOT_FOUND");
+    }
+
     let originalSubtotalMinor = 0;
     let itemDiscountTotalMinor = 0;
 
@@ -453,9 +741,11 @@ export function createSale(
         notes,
         completed_at,
         created_at,
-        updated_at
+        updated_at,
+        idempotency_key,
+        idempotency_request_hash
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       saleId,
@@ -477,6 +767,8 @@ export function createSale(
       timestamp,
       timestamp,
       timestamp,
+      idempotencyKey ?? null,
+      requestHash,
     );
 
     // Save item snapshots and deduct stock.
@@ -580,13 +872,34 @@ export function createSale(
       ],
     });
 
+    if (idempotencyKey && savedAttempt) {
+      const completion = db.prepare(
+        `UPDATE checkout_attempts
+         SET status = 'completed', sale_id = ?, completed_at = ?, updated_at = ?
+         WHERE business_id = ? AND employee_id = ? AND idempotency_key = ?
+           AND request_hash = ? AND status = 'pending'`,
+      ).run(
+        saleId,
+        timestamp,
+        timestamp,
+        auth.businessId,
+        auth.employeeId,
+        idempotencyKey,
+        requestHash,
+      );
+
+      if (completion.changes !== 1) {
+        throw new Error("CHECKOUT_ATTEMPT_UPDATE_FAILED");
+      }
+    }
+
     const createdSale = getSaleById(db, auth.businessId, saleId);
 
     if (!createdSale) {
       throw new Error("SALE_CREATION_FAILED");
     }
 
-    return createdSale;
+    return { sale: createdSale, replayed: false };
   });
 
   // Immediate transaction obtains the write lock before reading stock.

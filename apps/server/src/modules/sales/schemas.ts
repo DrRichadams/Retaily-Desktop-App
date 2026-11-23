@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+const idempotencyKeyValueSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[\x21-\x7E]+$/);
+
+export const idempotencyKeySchema = idempotencyKeyValueSchema.optional();
+
+export const checkoutAttemptQuerySchema = z.object({
+  idempotencyKey: idempotencyKeyValueSchema,
+});
+
 const discountSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("none"),

@@ -6,6 +6,8 @@ import { employeeAccountStatusMigration } from "./005_employee_account_status.js
 import { customersMigration } from "./006_customers.js";
 import { salesTransactionsMigration } from "./007_sales_transactions.js";
 import { supervisorSalesPermissionsMigration } from "./008_supervisor_sales_permissions.js";
+import { salesIdempotencyMigration } from "./009_sales_idempotency.js";
+import { checkoutAttemptsMigration } from "./010_checkout_attempts.js";
 
 export const migrations = [
   initialMigration,
@@ -16,4 +18,6 @@ export const migrations = [
   customersMigration,
   salesTransactionsMigration,
   supervisorSalesPermissionsMigration,
+  salesIdempotencyMigration,
+  checkoutAttemptsMigration,
 ];
