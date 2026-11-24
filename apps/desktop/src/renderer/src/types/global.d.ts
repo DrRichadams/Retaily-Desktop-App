@@ -1,4 +1,13 @@
 import type { SalesIpcError, SalesIpcResult } from "../../../shared/sales-ipc.js";
+import type {
+  PrinterDiscoveryResponse,
+  PrinterDiscoveryStatus,
+} from "../../../main/hardware/printer-discovery.js";
+import type { PrinterIpcResult } from "../../../main/hardware/printer-ipc.js";
+import type {
+  PrinterConfiguration,
+  PrinterConfigurationReadResult,
+} from "../../../main/hardware/printer-configuration.js";
 
 export {};
 
@@ -352,6 +361,18 @@ interface RetailyAPI {
     getCheckoutAttempt(
       idempotencyKey: string,
     ): Promise<RetailySalesIpcResult<RetailyCheckoutAttemptResponse>>;
+  };
+
+  hardware: {
+    printers: {
+      discover(): Promise<PrinterIpcResult<PrinterDiscoveryResponse>>;
+      getDiscoveryStatus(): Promise<PrinterIpcResult<PrinterDiscoveryStatus>>;
+      readConfiguration(): Promise<PrinterIpcResult<PrinterConfigurationReadResult>>;
+      saveConfiguration(configuration: {
+        printerId: string;
+        paperWidth: "58mm" | "80mm";
+      }): Promise<PrinterIpcResult<PrinterConfiguration>>;
+    };
   };
 }
 

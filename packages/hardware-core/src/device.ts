@@ -20,10 +20,16 @@ export type HardwareConnectionType = ExtensibleString<
 
 export type HardwareAvailability = "available" | "unavailable" | "busy" | "unknown";
 
+export type CapabilityReasonCode =
+  | "not-reported"
+  | "not-detectable"
+  | "requires-configuration"
+  | "not-applicable";
+
 export type CapabilityState<T> =
   | { status: "supported"; value: T }
-  | { status: "unsupported"; reason?: string }
-  | { status: "unknown"; reason?: string };
+  | { status: "unsupported"; reasonCode?: CapabilityReasonCode }
+  | { status: "unknown"; reasonCode?: CapabilityReasonCode };
 
 export interface HardwareDeviceIdentity {
   /** Adapter-defined stable identifier; never a raw device path or handle. */
@@ -42,7 +48,7 @@ export interface HardwareDevice<Capabilities extends object = Readonly<Record<st
   observedAt?: string;
 }
 
-export interface HardwareDiscoveryResult<TDevice = HardwareDevice> {
+export interface HardwareDiscoveryResult<TDevice extends HardwareDevice<object> = HardwareDevice> {
   status: "complete" | "partial";
   devices: readonly TDevice[];
   discoveredAt: string;

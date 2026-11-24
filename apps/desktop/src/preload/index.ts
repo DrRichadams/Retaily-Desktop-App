@@ -58,6 +58,16 @@ const retailyAPI = {
     getCheckoutAttempt: (idempotencyKey: string) =>
       ipcRenderer.invoke("sales:attempt:get", idempotencyKey),
   },
+
+  hardware: {
+    printers: {
+      discover: () => ipcRenderer.invoke("hardware:printers:discover"),
+      getDiscoveryStatus: () => ipcRenderer.invoke("hardware:printers:status"),
+      readConfiguration: () => ipcRenderer.invoke("hardware:printers:config:read"),
+      saveConfiguration: (configuration: { printerId: string; paperWidth: "58mm" | "80mm" }) =>
+        ipcRenderer.invoke("hardware:printers:config:save", configuration),
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("retaily", retailyAPI);

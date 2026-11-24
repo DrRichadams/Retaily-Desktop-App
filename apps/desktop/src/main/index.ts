@@ -1,12 +1,31 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import {
+  createPrinterDiscoveryService,
+} from "./hardware/printer-discovery.js";
+import {
+  createFilePrinterConfigurationStorage,
+  createPrinterConfigurationService,
+  createPrinterConfigurationStore,
+} from "./hardware/printer-configuration.js";
+import {
+  isTrustedPrinterIpcSender,
+  registerPrinterIpcHandlers,
+} from "./hardware/printer-ipc.js";
+import {
   salesLocalFailure,
 } from "../shared/sales-ipc.js";
 import { requestSales } from "../shared/sales-transport.js";
 
 let mainWindow: BrowserWindow | null = null;
 let sessionToken: string | null = null;
+
+const printerDiscovery = createPrinterDiscoveryService({
+  getPrinters: () => {
+    if (!mainWindow) throw new Error("Printer discovery is unavailable.");
+    return mainWindow.webContents.getPrintersAsync();
+  },
+});
 
 const SERVER_URL = "http://127.0.0.1:4317";
 const UUID_PATTERN =
@@ -165,6 +184,22 @@ async function serverRequest<T>(
 }
 
 function registerIpcHandlers() {
+  const printerConfiguration = createPrinterConfigurationService(
+    createPrinterConfigurationStore(
+      createFilePrinterConfigurationStorage(path.join(app.getPath("userData"), "hardware")),
+    ),
+    printerDiscovery,
+  );
+
+  registerPrinterIpcHandlers(ipcMain, printerDiscovery, printerConfiguration, (event) =>
+    isTrustedPrinterIpcSender(
+      event,
+      mainWindow?.webContents,
+      process.env.ELECTRON_RENDERER_URL,
+      path.resolve(__dirname, "../renderer/index.html"),
+    ),
+  );
+
   ipcMain.handle("app:get-version", () => app.getVersion());
 
   ipcMain.handle("server:health", async () => {
@@ -446,7 +481,7 @@ function registerIpcHandlers() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1100,
@@ -461,19 +496,20 @@ function createWindow() {
       sandbox: true,
     },
   });
+  mainWindow = window;
 
-  mainWindow.once("ready-to-show", () => {
-    mainWindow.maximize();
-    mainWindow.show();
+  window.once("ready-to-show", () => {
+    window.maximize();
+    window.show();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+    window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    window.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
-  mainWindow.on("closed", () => {
+  window.on("closed", () => {
     mainWindow = null;
   });
 }
